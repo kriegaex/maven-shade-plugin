@@ -20,6 +20,7 @@ package org.apache.maven.plugins.shade.filter;
  */
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeFalse;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -28,14 +29,17 @@ import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.TreeSet;
 
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.DefaultArtifact;
+import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.ArgumentCaptor;
@@ -43,16 +47,20 @@ import org.mockito.ArgumentCaptor;
 public class MinijarFilterTest
 {
 
+    @Rule
+    public TemporaryFolder tempFolder = TemporaryFolder.builder().assureDeletion().build();
+
     private File emptyFile;
+    private Log log;
+    private ArgumentCaptor<CharSequence> logCaptor;
 
     @Before
     public void init()
         throws IOException
     {
-        TemporaryFolder tempFolder = new TemporaryFolder();
-        tempFolder.create();
         this.emptyFile = tempFolder.newFile();
-
+        this.log = mock(Log.class);
+        logCaptor = ArgumentCaptor.forClass(CharSequence.class);
     }
 
     /**
@@ -64,11 +72,7 @@ public class MinijarFilterTest
     {
         assumeFalse( "Expected to run under JDK8+", System.getProperty("java.version").startsWith("1.7") );
 
-        ArgumentCaptor<CharSequence> logCaptor = ArgumentCaptor.forClass( CharSequence.class );
-
         MavenProject mavenProject = mockProject( emptyFile );
-
-        Log log = mock( Log.class );
 
         MinijarFilter mf = new MinijarFilter( mavenProject, log );
 
@@ -84,13 +88,9 @@ public class MinijarFilterTest
     public void testWithPomProject()
         throws IOException
     {
-        ArgumentCaptor<CharSequence> logCaptor = ArgumentCaptor.forClass( CharSequence.class );
-
         // project with pom packaging and no artifact.
         MavenProject mavenProject = mockProject( null );
         mavenProject.setPackaging( "pom" );
-
-        Log log = mock( Log.class );
 
         MinijarFilter mf = new MinijarFilter( mavenProject, log );
 
@@ -105,7 +105,7 @@ public class MinijarFilterTest
 
     }
 
-    private MavenProject mockProject( File file )
+    private MavenProject mockProject( File file, String... classPathElements )
     {
         MavenProject mavenProject = mock( MavenProject.class );
 
@@ -129,17 +129,18 @@ public class MinijarFilterTest
 
         when( mavenProject.getArtifact().getFile() ).thenReturn( file );
 
-        return mavenProject;
+        try {
+            when(mavenProject.getRuntimeClasspathElements()).thenReturn(Arrays.asList(classPathElements));
+        } catch (DependencyResolutionRequiredException e) {
+            fail("Encountered unexpected exception: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
 
+        return mavenProject;
     }
 
     @Test
     public void finsishedShouldProduceMessageForClassesTotalNonZero()
     {
-        ArgumentCaptor<CharSequence> logCaptor = ArgumentCaptor.forClass( CharSequence.class );
-
-        Log log = mock( Log.class );
-
         MinijarFilter m = new MinijarFilter( 1, 50, log );
 
         m.finished();
@@ -153,10 +154,6 @@ public class MinijarFilterTest
     @Test
     public void finishedShouldProduceMessageForClassesTotalZero()
     {
-        ArgumentCaptor<CharSequence> logCaptor = ArgumentCaptor.forClass( CharSequence.class );
-
-        Log log = mock( Log.class );
-
         MinijarFilter m = new MinijarFilter( 0, 0, log );
 
         m.finished();
@@ -166,4 +163,5 @@ public class MinijarFilterTest
         assertEquals( "Minimized 0 -> 0", logCaptor.getValue() );
 
     }
+
 }
